@@ -4,6 +4,8 @@ from flask import Flask, request, jsonify
 
 from intelligent_system import train_classifier, classify_text, add_training_data
 
+tfidf_vectorizer, prediction_models = train_classifier()
+
 app = Flask(__name__)
 
 
@@ -54,6 +56,5 @@ def index():
 
 if __name__ == '__main__':
 
-    tfidf_vectorizer, prediction_models = train_classifier()
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
