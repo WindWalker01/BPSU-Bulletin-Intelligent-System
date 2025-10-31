@@ -50,11 +50,7 @@ def train():
 
 @app.route('/')
 def index():
-    # tfidf_vectorizer, prediction_models = train_classifier()
-
-    test_text_1 = "You are completely clueless and stupid! Stop posting things here."
-    result_1 = classify_text(test_text_1, tfidf_vectorizer, prediction_models)
-    return result_1
+    return "Hello, World!"
 
 if __name__ == '__main__':
 
