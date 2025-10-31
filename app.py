@@ -1,10 +1,13 @@
 import os
-
 from flask import Flask, request, jsonify
-
 from intelligent_system import train_classifier, classify_text, add_training_data
 
-tfidf_vectorizer, prediction_models = train_classifier()
+import pickle
+
+with open("vectorizer.pkl", "rb") as f:
+    tfidf_vectorizer = pickle.load(f)
+with open("model.pkl", "rb") as f:
+    prediction_models = pickle.load(f)
 
 app = Flask(__name__)
 
