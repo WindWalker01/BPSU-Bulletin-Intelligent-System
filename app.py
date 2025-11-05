@@ -8,12 +8,11 @@ from intelligent_system import classify_text
 app = Flask(__name__)
 CORS(app)
 
-# Render gives DATABASE_URL for Postgres
 uri = os.getenv("DATABASE_URL", "sqlite:///local.db")
 
-# fix possible Render format issue (old psycopg requires postgresql+psycopg2)
+# Render uses "postgres://" but SQLAlchemy expects "postgresql+pg8000://"
 if uri.startswith("postgres://"):
-    uri = uri.replace("postgres://", "postgresql://", 1)
+    uri = uri.replace("postgres://", "postgresql+pg8000://", 1)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = uri
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
