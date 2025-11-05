@@ -8,11 +8,15 @@ from intelligent_system import classify_text
 app = Flask(__name__)
 CORS(app)
 
-# MySQL connection (Render compatible)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
-    "DATABASE_URL", "mysql+pymysql://root@localhost/intelligent_system"
-)
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+# Render gives DATABASE_URL for Postgres
+uri = os.getenv("DATABASE_URL", "sqlite:///local.db")
+
+# fix possible Render format issue (old psycopg requires postgresql+psycopg2)
+if uri.startswith("postgres://"):
+    uri = uri.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = uri
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db.init_app(app)
 
