@@ -1,6 +1,9 @@
-from app import db
+from app import app, db
 from intelligent_system import train_classifier
 
 if __name__ == "__main__":
-    with db.engine.connect() as conn:
+    # Create Flask application context
+    with app.app_context():
+        print("🔄 Starting retraining process...")
         train_classifier(db.session)
+        print("✅ Model retraining complete.")
