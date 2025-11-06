@@ -1,10 +1,22 @@
-import pandas as pd
-import re, string, pickle
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+import os
+
+import re, string
+import ssl
+
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
-from models import TrainingData
+import os
+import pandas as pd
+import pickle
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from tqdm import tqdm
+
+from models import TrainingData  # ORM model
+from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
 
 try:
     STOPWORDS = set(stopwords.words('english'))
@@ -24,39 +36,103 @@ def text_preprocessor(text):
     return " ".join(tokens)
 
 
-def train_classifier(session):
-    print("🔄 Training model using database data...")
-    data = session.query(TrainingData).all()
-    if not data:
-        raise ValueError("No training data found.")
+def get_db_session():
+    """Connect to production database using pg8000 driver."""
+    load_dotenv()
+    db_url = os.getenv("IS_DATABASE_URL")
 
-    df = pd.DataFrame(
-        [{"text": d.text, "toxic": int(d.toxic), "spam": int(d.spam)} for d in data]
+    print(db_url)
+
+    if not db_url:
+        raise EnvironmentError(
+            "❌ DATABASE_URL environment variable not set. Example:\n"
+            "export DATABASE_URL='postgresql+pg8000://user:pass@host:5432/dbname'"
+        )
+
+    # Create SQLAlchemy engine with pg8000
+    engine = create_engine(db_url)
+    Session = sessionmaker(bind=engine)
+    return Session()
+
+def train_classifier():
+    """
+    Train moderation models using local exported data if available,
+    otherwise fall back to production PostgreSQL database.
+    """
+
+    print("🚀 Starting model retraining...")
+
+    load_dotenv()
+    local_csv_path = "database.csv"
+    df = None
+
+    # --- 1️⃣ Try using local CSV if it exists ---
+    if os.path.exists(local_csv_path):
+        print(f"📂 Found local dataset: {local_csv_path}")
+        df = pd.read_csv(local_csv_path)
+        print(f"📊 Loaded {len(df):,} rows from CSV.")
+    else:
+        # --- 2️⃣ Otherwise, connect to live DB ---
+        print("🌐 No CSV found — connecting to database instead...")
+        db_url = os.getenv("IS_DATABASE_URL")
+        if not db_url:
+            raise EnvironmentError("❌ IS_DATABASE_URL not set in .env file.")
+
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        engine = create_engine(db_url, connect_args={"ssl_context": ssl_context})
+
+        query = text("SELECT text, toxic, spam FROM training_data;")
+        df_iter = pd.read_sql(query, engine, chunksize=5000)
+        df = pd.concat(df_iter, ignore_index=True)
+        print(f"📊 Retrieved {len(df):,} rows from database.")
+
+    if df.empty:
+        raise ValueError("❌ No training data available.")
+
+    # --- Preprocess text (with progress bar) ---
+    print("🧹 Cleaning text data...")
+    tqdm.pandas(desc="Cleaning Text")
+    df["text_clean"] = df["text"].astype(str).progress_apply(text_preprocessor)
+
+    # --- Vectorize ---
+    print("⚙️ Vectorizing text...")
+    vectorizer = TfidfVectorizer(
+        ngram_range=(1, 2),
+        min_df=2,
+        max_df=0.7,
+        sublinear_tf=True,
+        lowercase=True,
     )
-    df["text_clean"] = df["text"].apply(text_preprocessor)
+    X_vec = vectorizer.fit_transform(df["text_clean"])
 
-    X_train = df["text_clean"]
-    vectorizer = TfidfVectorizer(ngram_range=(1, 2), min_df=2, max_df=0.7)
-    X_vec = vectorizer.fit_transform(X_train)
-
+    # --- Train models ---
+    print("🧠 Training models...")
     models = {}
-    for label in ["toxic", "spam"]:
-        y_train = df[label]
+    for label in tqdm(["toxic", "spam"], desc="Training Models"):
+        y_train = df[label].astype(int)
         if y_train.nunique() < 2:
-            print(f"⚠️ Skipping {label} (only one class).")
+            print(f"⚠️ Skipping '{label}' — only one class present.")
             continue
-        model = LogisticRegression(solver="liblinear", class_weight="balanced", C=4.0)
+        model = LogisticRegression(
+            solver="liblinear",
+            class_weight="balanced",
+            C=4.0,
+            max_iter=500,
+            n_jobs=-1,
+        )
         model.fit(X_vec, y_train)
         models[label] = model
-        print(f"✅ Trained model for: {label}")
 
+    # --- Save trained artifacts ---
+    print("💾 Saving model and vectorizer...")
     with open("vectorizer.pkl", "wb") as f:
         pickle.dump(vectorizer, f)
     with open("model.pkl", "wb") as f:
         pickle.dump(models, f)
 
-    print("🎉 Training complete. Models saved.")
-
+    print("🎉 Training complete — saved 'vectorizer.pkl' and 'model.pkl'.")
 
 def classify_text(text, vectorizer, models):
     cleaned_text = text_preprocessor(text)
