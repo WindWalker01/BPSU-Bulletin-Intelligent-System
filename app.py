@@ -59,7 +59,7 @@ def classify():
 def add():
     # --- Load environment ---
     load_dotenv()
-    db_url = os.getenv("IS_DATABASE_URL")
+    db_url = os.getenv("DATABASE_URL")
 
     if not db_url:
         return jsonify({"error": "Database URL not configured"}), 500
