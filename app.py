@@ -59,7 +59,7 @@ def classify():
 def add():
     # --- Load environment ---
     load_dotenv()
-    db_url = os.getenv("DATABASE_URL")
+    db_url = os.getenv("IS_DATABASE_URL")
 
     if not db_url:
         return jsonify({"error": "Database URL not configured"}), 500
@@ -88,8 +88,8 @@ def add():
 
     params = {
         "text": content.strip(),
-        "toxic": True if toxic == "1" else False,
-        "spam": True if spam == "1" else False
+        "toxic": 1 if toxic == "1" else 0,
+        "spam": 1 if spam == "1" else 0
     }
 
     # --- Execute safely ---
