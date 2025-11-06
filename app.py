@@ -1,11 +1,13 @@
-import os
 import pickle
-from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 
-from models import db, TrainingData
 from intelligent_system import classify_text
+
+from flask import Flask, request, jsonify
+from sqlalchemy import create_engine, text
+from dotenv import load_dotenv
+import ssl, os
 
 app = Flask(__name__)
 CORS(app)
@@ -55,6 +57,22 @@ def classify():
 
 @app.route("/api/add", methods=["POST"])
 def add():
+    # --- Load environment ---
+    load_dotenv()
+    db_url = os.getenv("IS_DATABASE_URL")
+
+    if not db_url:
+        return jsonify({"error": "Database URL not configured"}), 500
+
+    # --- Secure SSL connection for Render PostgreSQL ---
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
+    # --- Create DB engine ---
+    engine = create_engine(db_url, connect_args={"ssl_context": ssl_context})
+
+    # --- Parse incoming form data ---
     content = request.form.get("content")
     toxic = request.form.get("is-toxic")
     spam = request.form.get("is-spam")
@@ -62,15 +80,27 @@ def add():
     if not content or toxic is None or spam is None:
         return jsonify({"error": "Missing input"}), 400
 
-    new_data = TrainingData(
-        text=content,
-        toxic=(toxic == "1"),
-        spam=(spam == "1"),
-    )
-    db.session.add(new_data)
-    db.session.commit()
+    # --- Prepare SQL INSERT ---
+    query = text("""
+        INSERT INTO training_data (text, toxic, spam)
+        VALUES (:text, :toxic, :spam)
+    """)
 
-    return jsonify({"success": True}), 200
+    params = {
+        "text": content.strip(),
+        "toxic": True if toxic == "1" else False,
+        "spam": True if spam == "1" else False
+    }
+
+    # --- Execute safely ---
+    try:
+        with engine.begin() as conn:
+            conn.execute(query, params)
+        print(f"✅ Added training sample: {params}")
+        return jsonify({"success": True}), 200
+    except Exception as e:
+        print(f"❌ Database insert failed: {e}")
+        return jsonify({"error": "Database insert failed"}), 500
 
 
 @app.route("/")
